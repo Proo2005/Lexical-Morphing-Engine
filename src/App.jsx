@@ -2,12 +2,10 @@ import React, { useState } from 'react';
 import './App.css';
 import PerceptionNode from './components/PerceptionNode';
 import InferenceEngine from './components/InferenceEngine';
-import LexicalCanvas from './components/LexicalCanvas'; // 1. Import the Canvas
+import LexicalCanvas from './components/LexicalCanvas';
 
 function App() {
   const [currentSequence, setCurrentSequence] = useState(null);
-  
-  // Store both the readable string and the raw numerical index
   const [gazeState, setGazeState] = useState({ 
     text: "Calibrating Neural Baseline...", 
     rawIndex: 0 
@@ -17,12 +15,47 @@ function App() {
     setCurrentSequence(sequence);
   };
 
+  // The Telemetry Dispatcher Function
+  const dispatchToBackend = async (sequenceMatrix, predictionResult) => {
+    try {
+      const payload = {
+        sequence_matrix: sequenceMatrix,
+        predicted_state: predictionResult.state,
+        confidence_score: parseFloat(predictionResult.confidence)
+      };
+
+      const response = await fetch('http://127.0.0.1:8000/api/telemetry/ingest/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        console.log("🟢 Telemetry successfully ingested by Django DB.");
+      } else {
+        console.warn("🔴 Django rejected the payload. Check server logs.");
+      }
+    } catch (error) {
+      console.error("🔴 Telemetry pipeline failed to connect:", error);
+    }
+  };
+
   const handlePrediction = (result) => {
     const states = ["Fluid Reading", "Micro-Hesitation Detected", "Visual Regression Detected"];
+    
+    // 1. Update the UI State
     setGazeState({
       text: `State: ${states[result.state]} | Confidence: ${result.confidence}`,
-      rawIndex: result.state // 2. Capture the exact integer output
+      rawIndex: result.state
     });
+
+    // 2. Dispatch the data to the Django Backend
+    // We pass both the current array of 60 frames and the model's conclusion
+    if (currentSequence) {
+      dispatchToBackend(currentSequence, result);
+    }
   };
 
   return (
@@ -41,10 +74,8 @@ function App() {
         </div>
       </header>
 
-      {/* 3. Mount the Reactive Canvas and pass the raw state */}
       <LexicalCanvas activeState={gazeState.rawIndex} />
 
-      {/* Background Processing Nodes */}
       <PerceptionNode onSequenceReady={handleSequenceReady} />
       <InferenceEngine sequence={currentSequence} onPrediction={handlePrediction} />
     </div>
